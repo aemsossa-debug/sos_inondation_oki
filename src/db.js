@@ -9,9 +9,16 @@ if (!config.supabaseUrl || !config.supabaseServiceKey) {
   console.warn("[db] SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant — voir .env.example");
 }
 
-const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey, {
-  auth: { persistSession: false },
-});
+// Des valeurs de repli évitent un crash au démarrage (createClient lève une
+// exception synchrone si l'URL est vide) tant que les vraies variables
+// d'environnement ne sont pas encore renseignées ; toute requête réelle
+// échouera proprement (erreur réseau/auth) plutôt que de faire planter tout
+// le process au chargement du module.
+const supabase = createClient(
+  config.supabaseUrl || "https://placeholder.supabase.co",
+  config.supabaseServiceKey || "placeholder-key-not-set",
+  { auth: { persistSession: false } }
+);
 
 function orThrow(error, contexte) {
   if (error) {
