@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demander une intervention — SOS INONDATION</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Big+Shoulders+Display:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root{
+    --ink:#0E211E; --ink-soft:#3E5551; --flood:#123C3C; --flood-2:#1B5654; --teal:#2BA79A; --teal-soft:#DCEDE9;
+    --alarm:#FF4A33; --alarm-dark:#D93B26; --amber:#F5A623; --bg:#EFF4F0; --paper:#FFFFFF; --paper-soft:#FAFAF6;
+    --line:rgba(14,33,30,0.12); --whatsapp:#25D366; --whatsapp-dark:#1DA851;
+    --shadow-sm:0 2px 10px rgba(14,33,30,.06); --shadow-md:0 10px 30px rgba(14,33,30,.10); --radius:16px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;min-height:100vh;}
+  h1,h2,h3{font-family:'Archivo',sans-serif;margin:0;letter-spacing:-0.01em;}
+  .stat-num{font-family:'Big Shoulders Display',sans-serif;font-weight:800;}
+  a{color:inherit;}
+  :focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px;}
+  button{font-family:inherit;}
+
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(239,244,240,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 20px;}
+  .topbar__inner{max-width:640px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;}
+  .logo{display:flex;align-items:center;gap:9px;font-family:'Archivo',sans-serif;font-weight:800;font-size:16.5px;color:var(--flood);}
+  .logo__mark{width:28px;height:28px;border-radius:8px;background:var(--flood);display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;}
+  .logo__dot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:var(--alarm);border:2px solid var(--bg);}
+  .logo b{color:var(--alarm);}
+  .back{font-size:13px;font-weight:700;color:var(--ink-soft);display:flex;align-items:center;gap:5px;}
+
+  .wrap{max-width:560px;margin:0 auto;padding:26px 18px 100px;}
+
+  .progress{display:flex;gap:6px;margin-bottom:22px;}
+  .progress i{flex:1;height:5px;border-radius:100px;background:var(--line);overflow:hidden;position:relative;}
+  .progress i.done::after, .progress i.active::after{content:"";position:absolute;inset:0;background:var(--alarm);border-radius:100px;}
+  .progress i.active::after{animation:grow .3s ease forwards;}
+  @keyframes grow{from{transform:scaleX(0);}to{transform:scaleX(1);}}
+  .progress i{transform-origin:left;}
+  .step-label{font-size:12.5px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;display:block;}
+  .step-title{font-size:23px;margin-bottom:6px;}
+  .step-sub{font-size:14px;color:var(--ink-soft);margin-bottom:26px;line-height:1.5;}
+
+  .card{background:var(--paper);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--line);}
+
+  .service-list{display:grid;gap:11px;}
+  .service-opt{display:flex;align-items:center;gap:14px;padding:15px 16px;border-radius:14px;border:1.6px solid var(--line);cursor:pointer;background:var(--paper);transition:border-color .15s, background .15s;}
+  .service-opt:hover{border-color:var(--teal);}
+  .service-opt.sel{border-color:var(--alarm);background:#FFF6F5;}
+  .service-opt input{display:none;}
+  .service-opt__icon{width:42px;height:42px;border-radius:12px;background:var(--teal-soft);display:flex;align-items:center;justify-content:center;color:var(--flood);flex-shrink:0;}
+  .service-opt.sel .service-opt__icon{background:var(--alarm);color:#fff;}
+  .service-opt__body{flex:1;min-width:0;}
+  .service-opt__title{font-weight:700;font-size:14.5px;color:var(--flood);}
+  .service-opt__meta{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  .service-opt__check{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+  .service-opt.sel .service-opt__check{background:var(--alarm);border-color:var(--alarm);}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:15px 22px;border-radius:100px;font-weight:700;font-size:15px;border:none;cursor:pointer;width:100%;transition:transform .15s, background .15s;}
+  .btn:hover{transform:translateY(-1px);}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;transform:none;}
+  .btn-alarm{background:var(--alarm);color:#fff;box-shadow:0 8px 20px rgba(255,74,51,.3);}
+  .btn-alarm:hover:not([disabled]){background:var(--alarm-dark);}
+  .btn-ghost{background:transparent;border:1.5px solid var(--line);color:var(--flood);}
+  .btn-ghost:hover{border-color:var(--flood);}
+  .btn-whatsapp{background:var(--whatsapp);color:#fff;}
+  .btn-row{display:flex;gap:10px;margin-top:22px;}
+  .btn-row .btn-ghost{width:auto;padding-left:18px;padding-right:18px;flex-shrink:0;}
+
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:13px;font-weight:700;color:var(--flood);margin-bottom:7px;}
+  .field input[type=text], .field input[type=tel], .field select, .field textarea{
+    width:100%;padding:13px 14px;border-radius:11px;border:1.6px solid var(--line);font-size:15px;font-family:inherit;background:var(--paper);color:var(--ink);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{border-color:var(--teal);outline:none;}
+  .field textarea{resize:vertical;min-height:70px;}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+
+  .gps-btn{display:flex;align-items:center;gap:12px;width:100%;padding:16px;border-radius:14px;border:1.6px dashed var(--teal);background:var(--teal-soft);cursor:pointer;font-weight:700;font-size:14.5px;color:var(--flood);margin-bottom:16px;}
+  .gps-btn svg{flex-shrink:0;}
+  .gps-btn.located{border-style:solid;border-color:var(--teal);background:#fff;}
+  .gps-status{font-size:12.5px;color:var(--ink-soft);font-weight:500;margin-top:2px;}
+  #miniMap{height:160px;border-radius:12px;margin-bottom:16px;display:none;border:1px solid var(--line);}
+
+  .upload-zone{border:1.6px dashed var(--line);border-radius:14px;padding:26px 16px;text-align:center;cursor:pointer;background:var(--paper-soft);position:relative;overflow:hidden;}
+  .upload-zone.has-img{padding:0;border-style:solid;}
+  .upload-zone svg{color:var(--teal);margin-bottom:8px;}
+  .upload-zone p{font-size:13.5px;font-weight:700;color:var(--flood);margin:0 0 3px;}
+  .upload-zone span{font-size:12px;color:var(--ink-soft);}
+  .upload-zone img{width:100%;max-height:260px;object-fit:cover;display:block;}
+  .upload-zone input{display:none;}
+  .remove-photo{position:absolute;top:10px;right:10px;background:rgba(14,33,30,.7);color:#fff;border:none;width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+
+  .quartier-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+  .quartier-chip{padding:8px 14px;border-radius:100px;border:1.5px solid var(--line);font-size:12.5px;font-weight:600;cursor:pointer;background:var(--paper);}
+  .quartier-chip.sel{background:var(--flood);border-color:var(--flood);color:#fff;}
+
+  .recap-row{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line);font-size:14px;gap:12px;}
+  .recap-row:last-child{border-bottom:none;}
+  .recap-row span:first-child{color:var(--ink-soft);flex-shrink:0;}
+  .recap-row span:last-child{font-weight:700;color:var(--flood);text-align:right;}
+  .price-box{background:var(--flood);border-radius:14px;padding:18px 20px;color:#fff;margin:18px 0;display:flex;justify-content:space-between;align-items:center;}
+  .price-box .stat-num{font-size:26px;}
+  .price-box span{font-size:12px;opacity:.75;}
+
+  .pay-list{display:grid;gap:10px;margin-bottom:6px;}
+  .pay-opt{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:12px;border:1.6px solid var(--line);cursor:pointer;}
+  .pay-opt input{display:none;}
+  .pay-opt.sel{border-color:var(--teal);background:var(--teal-soft);}
+  .pay-opt__badge{width:38px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;color:#fff;flex-shrink:0;}
+
+  .confirm-wrap{text-align:center;padding:30px 0 10px;}
+  .confirm-icon{width:78px;height:78px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;animation:pop .4s ease;}
+  @keyframes pop{0%{transform:scale(.5);opacity:0;}100%{transform:scale(1);opacity:1;}}
+  .track-code{font-family:'Big Shoulders Display',sans-serif;font-size:38px;font-weight:800;color:var(--flood);background:var(--paper);border:2px dashed var(--teal);border-radius:14px;padding:16px;margin:20px 0;letter-spacing:.03em;}
+
+  .loading-overlay{position:fixed;inset:0;background:rgba(14,33,30,.55);display:flex;align-items:center;justify-content:center;z-index:999;}
+  .loading-box{background:#fff;border-radius:18px;padding:34px 30px;text-align:center;max-width:280px;}
+  .spinner{width:42px;height:42px;border:4px solid var(--teal-soft);border-top-color:var(--teal);border-radius:50%;margin:0 auto 16px;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .err-msg{background:#FFF1EF;border:1px solid rgba(255,74,51,.3);color:var(--alarm-dark);font-size:12.5px;font-weight:600;padding:10px 13px;border-radius:10px;margin-bottom:14px;display:none;}
+  .step{display:none;}
+  .step.active{display:block;animation:fadein .35s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="ic-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5s7 7.4 7 12.5a7 7 0 1 1-14 0c0-5.1 7-12.5 7-12.5Z"/></symbol>
+  <symbol id="ic-spray" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8V5a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v3"/><path d="M5 8h7l1 13H6L5 8Z"/><path d="M16 5h5M17 9h5M15 3l1.5 1.5M15 3 13.5 4.5"/></symbol>
+  <symbol id="ic-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 9-5 9 5-9 5-9-5Z"/><path d="M3 8v9l9 5 9-5V8"/><path d="M12 13v9"/></symbol>
+  <symbol id="ic-pipe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3 17.4 9M19 4l1 1-3 3-1-1 3-3Z"/><path d="M4 20 14.7 9.3"/><circle cx="6" cy="18" r="2.2"/></symbol>
+  <symbol id="ic-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></symbol>
+  <symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="ic-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 5.5-8 12-8 12s-8-6.5-8-12a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.6"/></symbol>
+  <symbol id="ic-cam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2.5h7L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="14" r="3.4"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6"/></symbol>
+  <symbol id="ic-arrow-l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="ic-wa" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.5 2 2 6.4 2 11.9c0 1.9.5 3.6 1.5 5.2L2 22l5.1-1.4c1.5.8 3.2 1.3 4.9 1.3 5.5 0 10-4.4 10-9.9C22 6.4 17.5 2 12 2Zm5.9 14.1c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5.1-4.5-.1-.2-1.2-1.6-1.2-3.1s.8-2.2 1.1-2.5c.3-.3.6-.4.8-.4h.6c.2 0 .5-.1.7.5.3.7.9 2.3 1 2.5.1.2.1.4 0 .6-.1.2-.2.4-.4.6-.2.2-.4.5-.5.6-.2.2-.4.4-.2.8.2.4 1 1.6 2.1 2.6 1.4 1.3 2.6 1.7 3 1.9.4.2.6.1.8-.1.2-.2.9-1 1.1-1.4.2-.4.5-.3.8-.2.3.1 2 1 2.4 1.1.4.2.6.3.7.4.1.2.1.9-.1 1.6Z"/></symbol>
+</svg>
+
+<div class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="logo"><span class="logo__mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><use href="#ic-drop"/></svg><span class="logo__dot"></span></span>SOS<b>&nbsp;INONDATION</b></a>
+    <a href="index.html" class="back"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-arrow-l"/></svg>Accueil</a>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="progress" id="progressBar">
+    <i class="active" data-s="1"></i><i data-s="2"></i><i data-s="3"></i><i data-s="4"></i><i data-s="5"></i>
+  </div>
+
+  <!-- STEP 1 : SERVICE -->
+  <div class="step active" data-step="1">
+    <span class="step-label">Étape 1 / 5</span>
+    <h2 class="step-title">Quel est le problème ?</h2>
+    <p class="step-sub">Choisissez le service qui correspond à votre situation.</p>
+    <div class="service-list" id="serviceList"></div>
+    <div class="btn-row"><button class="btn btn-alarm" id="next1" disabled>Continuer</button></div>
+  </div>
+
+  <!-- STEP 2 : LOCALISATION -->
+  <div class="step" data-step="2">
+    <span class="step-label">Étape 2 / 5</span>
+    <h2 class="step-title">Où intervenir ?</h2>
+    <p class="step-sub">Votre position exacte permet d'affecter le technicien le plus proche.</p>
+    <button class="gps-btn" id="gpsBtn">
+      <svg width="22" height="22"><use href="#ic-pin"/></svg>
+      <div><div id="gpsBtnText">Utiliser ma position actuelle</div><div class="gps-status" id="gpsStatus"></div></div>
+    </button>
+    <div id="miniMap"></div>
+    <div class="field">
+      <label for="quartierInput">Quartier</label>
+      <div class="quartier-grid" id="quartierGrid"></div>
+      <input type="text" id="quartierInput" placeholder="Ou saisissez votre quartier">
+    </div>
+    <div class="field">
+      <label for="addressDetail">Repère / adresse précise</label>
+      <input type="text" id="addressDetail" placeholder="Ex : rue 12, près de la pharmacie, portail bleu">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-arrow-l"/></svg></button>
+      <button class="btn btn-alarm" id="next2">Continuer</button>
+    </div>
+  </div>
+
+  <!-- STEP 3 : PHOTO -->
+  <div class="step" data-step="3">
+    <span class="step-label">Étape 3 / 5</span>
+    <h2 class="step-title">Une photo du sinistre</h2>
+    <p class="step-sub">Elle aide le technicien à venir avec le bon matériel. Facultatif mais recommandé.</p>
+    <label class="upload-zone" id="uploadZone">
+      <input type="file" id="photoInput" accept="image/*" capture="environment">
+      <div id="uploadPlaceholder">
+        <svg width="30" height="30"><use href="#ic-cam"/></svg>
+        <p>Ajouter une photo</p>
+        <span>Depuis la caméra ou la galerie</span>
+      </div>
+      <img id="photoPreview" style="display:none">
+      <button type="button" class="remove-photo" id="removePhoto" style="display:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><use href="#ic-x"/></svg></button>
+    </label>
+    <div class="field" style="margin-top:16px;">
+      <label for="descInput">Description courte (optionnel)</label>
+      <textarea id="descInput" placeholder="Ex : eau jusqu'aux genoux dans le salon, courant coupé"></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-arrow-l"/></svg></button>
+      <button class="btn btn-alarm" id="next3">Continuer</button>
+    </div>
+  </div>
+
+  <!-- STEP 4 : COORDONNEES -->
+  <div class="step" data-step="4">
+    <span class="step-label">Étape 4 / 5</span>
+    <h2 class="step-title">Vos coordonnées</h2>
+    <p class="step-sub">Pour que le technicien et le centre de commande puissent vous joindre.</p>
+    <div class="field"><label for="nomInput">Nom complet</label><input type="text" id="nomInput" placeholder="Ex : Jean Ahouansou"></div>
+    <div class="field"><label for="telInput">Numéro WhatsApp</label><input type="tel" id="telInput" placeholder="Ex : 01 XX XX XX XX"></div>
+    <div class="field">
+      <label for="logementInput">Type de logement</label>
+      <select id="logementInput">
+        <option value="maison">Maison individuelle</option>
+        <option value="appartement">Appartement</option>
+        <option value="commerce">Commerce / boutique</option>
+        <option value="entreprise">Entreprise / bureaux</option>
+      </select>
+    </div>
+    <div class="err-msg" id="err4"></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-arrow-l"/></svg></button>
+      <button class="btn btn-alarm" id="next4">Continuer</button>
+    </div>
+  </div>
+
+  <!-- STEP 5 : RECAP + PAIEMENT -->
+  <div class="step" data-step="5">
+    <span class="step-label">Étape 5 / 5</span>
+    <h2 class="step-title">Récapitulatif</h2>
+    <p class="step-sub">Vérifiez les informations avant l'envoi.</p>
+    <div class="card">
+      <div class="recap-row"><span>Service</span><span id="recapService">—</span></div>
+      <div class="recap-row"><span>Localisation</span><span id="recapLoc">—</span></div>
+      <div class="recap-row"><span>Contact</span><span id="recapContact">—</span></div>
+      <div class="recap-row"><span>Photo</span><span id="recapPhoto">—</span></div>
+    </div>
+    <div class="price-box">
+      <div><div style="font-size:12px;opacity:.75;margin-bottom:2px;">Montant estimé</div><div class="stat-num" id="recapPrice">—</div></div>
+      <span>Confirmé sur place<br>avant intervention</span>
+    </div>
+    <div class="field"><label>Mode de paiement</label></div>
+    <div class="pay-list" id="payList"></div>
+    <div class="err-msg" id="err5"></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-arrow-l"/></svg></button>
+      <button class="btn btn-alarm" id="submitBtn">Confirmer la demande</button>
+    </div>
+  </div>
+
+  <!-- STEP 6 : CONFIRMATION -->
+  <div class="step" data-step="6">
+    <div class="confirm-wrap">
+      <div class="confirm-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"><use href="#ic-check"/></svg></div>
+      <h2 class="step-title">Demande enregistrée !</h2>
+      <p class="step-sub" style="margin-top:10px;">Un technicien vous est affecté. Délai visé : 2 heures.</p>
+      <div class="track-code" id="trackCode">SI-XXXX</div>
+      <p class="hint" style="margin-bottom:22px;">Notez ce code pour suivre votre intervention en temps réel. Une confirmation est aussi envoyée par WhatsApp.</p>
+      <a class="btn btn-alarm" id="suiviBtn" href="#" style="margin-bottom:12px;">Suivre mon intervention</a>
+      <a class="btn btn-whatsapp" id="waConfirmBtn" href="#" target="_blank" rel="noopener" style="margin-bottom:12px;"><svg width="17" height="17"><use href="#ic-wa"/></svg>Contacter sur WhatsApp</a>
+      <a class="btn btn-ghost" href="index.html">Retour à l'accueil</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   COUCHE DONNÉES — bascule MOCK_MODE=false + API_BASE une fois
+   le backend (dossier /backend) déployé, pour brancher les
+   vraies données. Le contrat d'API est identique dans les 2 cas.
+   ============================================================ */
+const MOCK_MODE = true;
+const API_BASE = '/api';
+const WHATSAPP_NUMBER = "22901020304"; // À REMPLACER par le vrai numéro SOS INONDATION
+
+const SERVICES = [
+  {id:'pompage', label:"Pompage eau + évacuation", price:[25000,80000], delay:"Intervention 2h", icon:'ic-drop'},
+  {id:'nettoyage', label:"Nettoyage & désinfection", price:[30000,100000], delay:"Jour même", icon:'ic-spray'},
+  {id:'demenagement', label:"Déménagement d'urgence", price:[20000,60000], delay:"Immédiat", icon:'ic-box'},
+  {id:'debouchage', label:"Débouchage canalisations", price:[15000,40000], delay:"Sous 1h", icon:'ic-pipe'},
+  {id:'electrique', label:"Sécurisation électrique", price:[20000,50000], delay:"Immédiat", icon:'ic-bolt'},
+  {id:'abonnement', label:"Pack Sécurité (abonnement saison)", price:[15000,30000], delay:"Priorité garantie", icon:'ic-shield'},
+];
+const QUARTIERS = ["Akpakpa","Cadjehoun","Fidjrossè","Gbégamey","Sainte-Rita","Zogbo","Godomey","Calavi-Centre","Womey","Togba","Autre"];
+const PAY_METHODS = [
+  {id:'mtn', label:'MTN Mobile Money', sub:'Confirmation directe sur votre téléphone', color:'#FFC800', text:'#123C3C', short:'MTN'},
+  {id:'moov', label:'Moov Money', sub:'Confirmation directe sur votre téléphone', color:'#1373C7', text:'#fff', short:'MOOV'},
+  {id:'carte', label:'Carte bancaire', sub:'Paiement sécurisé via CinetPay', color:'#123C3C', text:'#fff', short:'CB'},
+  {id:'x2', label:'Paiement en 2 fois', sub:'Accord via WhatsApp avec le technicien', color:'#FF4A33', text:'#fff', short:'x2'},
+];
+
+function genTrackingCode(){
+  const L='ABCDEFGHJKLMNPQRSTUVWXYZ';
+  return 'SI-'+L[Math.floor(Math.random()*L.length)]+Math.floor(100+Math.random()*900);
+}
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+
+const DataService = {
+  async createIntervention(payload){
+    if(MOCK_MODE){
+      await sleep(1100);
+      return { code: genTrackingCode(), statut:'nouvelle', created_at: Date.now() };
+    }
+    const res = await fetch(`${API_BASE}/interventions`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    if(!res.ok) throw new Error('Erreur serveur');
+    return res.json();
+  }
+};
+
+/* ============================================================
+   ÉTAT & NAVIGATION
+   ============================================================ */
+const state = { service:null, lat:null, lng:null, quartier:null, address:'', desc:'', photoName:null, nom:'', tel:'', logement:'maison', pay:null };
+let currentStep = 1;
+const TOTAL_STEPS = 5;
+
+function goTo(step){
+  document.querySelectorAll('.step').forEach(s=>s.classList.toggle('active', +s.dataset.step===step));
+  document.querySelectorAll('#progressBar i').forEach(i=>{
+    const s = +i.dataset.s;
+    i.classList.toggle('done', s < step);
+    i.classList.toggle('active', s <= step);
+  });
+  currentStep = step;
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+document.querySelectorAll('[data-back]').forEach(b=>b.addEventListener('click', ()=>goTo(Math.max(1,currentStep-1))));
+
+/* --- Step 1 : services --- */
+const serviceList = document.getElementById('serviceList');
+SERVICES.forEach(s=>{
+  const el = document.createElement('label');
+  el.className = 'service-opt';
+  el.innerHTML = `
+    <input type="radio" name="service" value="${s.id}">
+    <div class="service-opt__icon"><svg width="21" height="21"><use href="#${s.icon}"/></svg></div>
+    <div class="service-opt__body">
+      <div class="service-opt__title">${s.label}</div>
+      <div class="service-opt__meta">${s.price[0].toLocaleString('fr-FR')} – ${s.price[1].toLocaleString('fr-FR')} FCFA · ${s.delay}</div>
+    </div>
+    <div class="service-opt__check"></div>`;
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.service-opt').forEach(o=>o.classList.remove('sel'));
+    el.classList.add('sel');
+    el.querySelector('input').checked = true;
+    state.service = s;
+    document.getElementById('next1').disabled = false;
+  });
+  serviceList.appendChild(el);
+});
+document.getElementById('next1').addEventListener('click', ()=>goTo(2));
+
+/* --- Step 2 : localisation --- */
+const quartierGrid = document.getElementById('quartierGrid');
+QUARTIERS.forEach(q=>{
+  const chip = document.createElement('span');
+  chip.className='quartier-chip'; chip.textContent=q;
+  chip.addEventListener('click', ()=>{
+    document.querySelectorAll('.quartier-chip').forEach(c=>c.classList.remove('sel'));
+    chip.classList.add('sel');
+    state.quartier = q;
+    document.getElementById('quartierInput').value = q==='Autre' ? '' : q;
+  });
+  quartierGrid.appendChild(chip);
+});
+document.getElementById('quartierInput').addEventListener('input', (e)=>{ state.quartier = e.target.value; });
+
+let leafletMap=null, leafletMarker=null;
+document.getElementById('gpsBtn').addEventListener('click', ()=>{
+  const btn = document.getElementById('gpsBtn');
+  const status = document.getElementById('gpsStatus');
+  const btnText = document.getElementById('gpsBtnText');
+  if(!navigator.geolocation){ status.textContent = "Géolocalisation non disponible sur cet appareil — utilisez les champs ci-dessous."; return; }
+  btnText.textContent = 'Localisation en cours…';
+  status.textContent = '';
+  navigator.geolocation.getCurrentPosition((pos)=>{
+    state.lat = pos.coords.latitude; state.lng = pos.coords.longitude;
+    btn.classList.add('located');
+    btnText.textContent = 'Position enregistrée ✓';
+    status.textContent = `${state.lat.toFixed(5)}, ${state.lng.toFixed(5)} — précision ${Math.round(pos.coords.accuracy)} m`;
+    const mapEl = document.getElementById('miniMap');
+    mapEl.style.display = 'block';
+    if(window.L){
+      if(!leafletMap){
+        leafletMap = L.map('miniMap', {zoomControl:false, attributionControl:false}).setView([state.lat,state.lng], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(leafletMap);
+        leafletMarker = L.circleMarker([state.lat,state.lng], {radius:9, color:'#FF4A33', fillColor:'#FF4A33', fillOpacity:.9, weight:2}).addTo(leafletMap);
+      } else {
+        leafletMap.setView([state.lat,state.lng], 15);
+        leafletMarker.setLatLng([state.lat,state.lng]);
+      }
+      setTimeout(()=>leafletMap.invalidateSize(), 200);
+    }
+  }, (err)=>{
+    btnText.textContent = 'Utiliser ma position actuelle';
+    status.textContent = "Position indisponible (permission refusée ou signal faible) — renseignez votre quartier ci-dessous.";
+  }, {enableHighAccuracy:true, timeout:8000});
+});
+document.getElementById('next2').addEventListener('click', ()=>{
+  state.quartier = document.getElementById('quartierInput').value.trim() || state.quartier;
+  state.address = document.getElementById('addressDetail').value.trim();
+  goTo(3);
+});
+
+/* --- Step 3 : photo --- */
+const photoInput = document.getElementById('photoInput');
+const uploadZone = document.getElementById('uploadZone');
+photoInput.addEventListener('change', ()=>{
+  const file = photoInput.files[0];
+  if(!file) return;
+  state.photoName = file.name;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    document.getElementById('photoPreview').src = e.target.result;
+    document.getElementById('photoPreview').style.display='block';
+    document.getElementById('uploadPlaceholder').style.display='none';
+    document.getElementById('removePhoto').style.display='flex';
+    uploadZone.classList.add('has-img');
+  };
+  reader.readAsDataURL(file);
+});
+document.getElementById('removePhoto').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  state.photoName=null; photoInput.value='';
+  document.getElementById('photoPreview').style.display='none';
+  document.getElementById('uploadPlaceholder').style.display='block';
+  document.getElementById('removePhoto').style.display='none';
+  uploadZone.classList.remove('has-img');
+});
+document.getElementById('next3').addEventListener('click', ()=>{
+  state.desc = document.getElementById('descInput').value.trim();
+  goTo(4);
+});
+
+/* --- Step 4 : coordonnées --- */
+document.getElementById('next4').addEventListener('click', ()=>{
+  const nom = document.getElementById('nomInput').value.trim();
+  const tel = document.getElementById('telInput').value.trim();
+  const err = document.getElementById('err4');
+  if(!nom || !tel){ err.textContent = "Merci de renseigner votre nom et votre numéro WhatsApp."; err.style.display='block'; return; }
+  err.style.display='none';
+  state.nom = nom; state.tel = tel; state.logement = document.getElementById('logementInput').value;
+  buildRecap();
+  goTo(5);
+});
+
+/* --- Step 5 : récap + paiement --- */
+const payList = document.getElementById('payList');
+PAY_METHODS.forEach(p=>{
+  const el = document.createElement('label');
+  el.className='pay-opt';
+  el.innerHTML = `<input type="radio" name="pay" value="${p.id}">
+    <div class="pay-opt__badge" style="background:${p.color};color:${p.text}">${p.short}</div>
+    <div><div style="font-weight:700;font-size:14px;">${p.label}</div><div style="font-size:12px;color:var(--ink-soft);">${p.sub}</div></div>`;
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.pay-opt').forEach(o=>o.classList.remove('sel'));
+    el.classList.add('sel'); state.pay = p;
+    document.getElementById('err5').style.display='none';
+  });
+  payList.appendChild(el);
+});
+
+function buildRecap(){
+  document.getElementById('recapService').textContent = state.service.label;
+  const locBits = [state.quartier, state.address].filter(Boolean);
+  document.getElementById('recapLoc').textContent = state.lat
+    ? `${locBits.join(', ') || 'Position GPS'} 📍`
+    : (locBits.join(', ') || 'Non précisée');
+  document.getElementById('recapContact').textContent = `${state.nom} · ${state.tel}`;
+  document.getElementById('recapPhoto').textContent = state.photoName ? 'Ajoutée ✓' : 'Aucune';
+  document.getElementById('recapPrice').textContent = `${state.service.price[0].toLocaleString('fr-FR')} – ${state.service.price[1].toLocaleString('fr-FR')} FCFA`;
+}
+
+document.getElementById('submitBtn').addEventListener('click', async ()=>{
+  const err = document.getElementById('err5');
+  if(!state.pay){ err.textContent = "Choisissez un mode de paiement pour continuer."; err.style.display='block'; return; }
+  err.style.display='none';
+
+  const overlay = document.createElement('div');
+  overlay.className='loading-overlay';
+  overlay.innerHTML = `<div class="loading-box"><div class="spinner"></div><div style="font-weight:700;color:var(--flood);margin-bottom:4px;">Envoi de la demande…</div><div style="font-size:12.5px;color:var(--ink-soft);">Recherche du technicien le plus proche</div></div>`;
+  document.body.appendChild(overlay);
+
+  try{
+    const payload = {
+      service: state.service.id, service_label: state.service.label,
+      lat: state.lat, lng: state.lng, quartier: state.quartier, adresse: state.address,
+      description: state.desc, nom: state.nom, telephone: state.tel, logement: state.logement,
+      mode_paiement: state.pay.id, montant_min: state.service.price[0], montant_max: state.service.price[1],
+    };
+    const result = await DataService.createIntervention(payload);
+    overlay.remove();
+    document.getElementById('trackCode').textContent = result.code;
+    document.getElementById('suiviBtn').href = `suivi.html?code=${result.code}&service=${encodeURIComponent(state.service.id)}&quartier=${encodeURIComponent(state.quartier||'')}&nom=${encodeURIComponent(state.nom)}&created=${result.created_at||Date.now()}&pmin=${state.service.price[0]}&pmax=${state.service.price[1]}`;
+    document.getElementById('waConfirmBtn').href = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent('Bonjour, je viens de faire une demande '+result.code+' sur le site SOS INONDATION.')}`;
+    goTo(6);
+  }catch(e){
+    overlay.remove();
+    err.textContent = "Une erreur est survenue. Réessayez ou contactez-nous sur WhatsApp.";
+    err.style.display='block';
+  }
+});
+
+// pré-sélection via ?type=abonnement (lien depuis la page d'accueil)
+const params = new URLSearchParams(location.search);
+if(params.get('type')==='abonnement'){
+  const opt = [...document.querySelectorAll('.service-opt')].find(o=>o.querySelector('input').value==='abonnement');
+  if(opt) opt.click();
+}
+</script>
+</body>
+</html>
