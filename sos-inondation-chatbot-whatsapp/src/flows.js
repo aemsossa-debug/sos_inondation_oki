@@ -36,8 +36,8 @@ async function reverseGeocode(lat, lng) {
 async function handleIncomingMessage(from, rawMessage) {
   wa.markAsRead(rawMessage.id).catch(() => {});
   const input = wa.normalizeIncoming(rawMessage);
-  let session = db.getSession(from);
-  let client = db.findClientByPhone(from);
+  let session = await db.getSession(from);
+  let client = await db.findClientByPhone(from);
 
   // Prise en charge humaine active (section 5.7) : le bot se tait, sauf MENU
   // qui reste une porte de sortie de sécurité si l'escalade n'était plus utile.
@@ -49,7 +49,7 @@ async function handleIncomingMessage(from, rawMessage) {
 
   // Nouveau contact jamais vu : on demande le prénom avant toute chose (section 5.2)
   if (!client && session.etape !== "onboarding_nom") {
-    db.setSession(from, { etape: "onboarding_nom", contexte: {} });
+    await db.setSession(from, { etape: "onboarding_nom", contexte: {} });
     return wa.sendText(
       from,
       "🌊 Bonjour et bienvenue chez *SOS INONDATION* 👋\nVotre allié en cas d'inondation à Cotonou & Abomey-Calavi.\n\nPour commencer, quel est votre prénom ?"
@@ -58,8 +58,8 @@ async function handleIncomingMessage(from, rawMessage) {
   if (session.etape === "onboarding_nom") {
     const nom = input.type === "text" ? input.value.trim() : "";
     if (!nom) return wa.sendText(from, "Merci de m'indiquer votre prénom en texte pour continuer 🙂");
-    client = db.upsertClient(from, { nom });
-    db.resetSession(from);
+    client = await db.upsertClient(from, { nom });
+    await db.resetSession(from);
     return sendMainMenu(from, client);
   }
 
@@ -67,15 +67,15 @@ async function handleIncomingMessage(from, rawMessage) {
   if (input.type === "text") {
     const cmd = normCmd(input.value);
     if (cmd === "MENU") {
-      db.resetSession(from);
+      await db.resetSession(from);
       return sendMainMenu(from, client);
     }
     if (cmd === "URGENCE") {
-      db.setSession(from, { etape: "urgence_position", contexte: {} });
+      await db.setSession(from, { etape: "urgence_position", contexte: {} });
       return startUrgence(from);
     }
     if (cmd === "STOP") {
-      db.upsertClient(from, { opt_out_marketing: true });
+      await db.upsertClient(from, { opt_out_marketing: true });
       return wa.sendText(from, "C'est noté : vous ne recevrez plus de messages promotionnels. Vous pouvez toujours nous écrire à tout moment en cas d'urgence.");
     }
     if (cmd === "PARRAINAGE") {
@@ -104,7 +104,7 @@ async function handleIncomingMessage(from, rawMessage) {
     case "abonnement_confirmation":
       return abonnementConfirmation(from, input, client);
     default:
-      db.resetSession(from);
+      await db.resetSession(from);
       return sendMainMenu(from, client);
   }
 }
@@ -113,7 +113,7 @@ async function handleIncomingMessage(from, rawMessage) {
 // 5.2 — Message d'accueil / menu principal
 // ============================================================================
 async function sendMainMenu(from, client) {
-  db.setSession(from, { etape: "menu_principal", contexte: {} });
+  await db.setSession(from, { etape: "menu_principal", contexte: {} });
   const prenom = client?.nom ? client.nom.split(" ")[0] : "";
   const salutation = prenom
     ? `Bonjour ${prenom} 👋 Nous sommes là pour vous aider.`
@@ -136,7 +136,7 @@ async function routeMenuPrincipal(from, input, client) {
   const choix = input.type === "choice" ? input.value : input.type === "text" ? input.value.trim() : "";
   switch (choix) {
     case "1":
-      db.setSession(from, { etape: "urgence_position", contexte: {} });
+      await db.setSession(from, { etape: "urgence_position", contexte: {} });
       return startUrgence(from);
     case "2":
       return sendDevisMenu(from);
@@ -167,8 +167,8 @@ async function urgenceCollecterPosition(from, input) {
     return wa.sendText(from, "Merci d'utiliser le bouton 📎 puis « Localisation » pour m'envoyer votre position exacte — c'est ce qui permet d'envoyer le bon technicien.");
   }
   const quartier = await reverseGeocode(input.value.lat, input.value.lng);
-  const session = db.getSession(from);
-  db.setSession(from, { etape: "urgence_photo", contexte: { ...session.contexte, position: input.value, quartier } });
+  const session = await db.getSession(from);
+  await db.setSession(from, { etape: "urgence_photo", contexte: { ...session.contexte, position: input.value, quartier } });
   return wa.sendText(from, `✅ Position reçue — Quartier ${quartier}\n\n2️⃣ Envoyez une photo du dégât si possible (sinon tapez PASSER)`);
 }
 
@@ -179,8 +179,8 @@ async function urgenceCollecterPhoto(from, input) {
   } else if (!(input.type === "text" && normCmd(input.value) === "PASSER")) {
     return wa.sendText(from, "Envoyez une photo (icône 📷) ou tapez PASSER pour continuer sans photo.");
   }
-  const session = db.getSession(from);
-  db.setSession(from, {
+  const session = await db.getSession(from);
+  await db.setSession(from, {
     etape: "urgence_type_probleme",
     contexte: { ...session.contexte, photoMediaId },
   });
@@ -200,9 +200,9 @@ async function urgenceCollecterType(from, input, client) {
   const typeLabel = { "1": "Maison inondée", "2": "Canalisation bouchée", "3": "Risque électrique", "4": "Autre" }[choix];
   const serviceId = URGENCE_TYPE_TO_SERVICE[choix];
   const service = SERVICES.find((s) => s.id === serviceId);
-  const session = db.getSession(from);
+  const session = await db.getSession(from);
 
-  const intervention = db.createIntervention({
+  const intervention = await db.createIntervention({
     client_id: client.id,
     type_service: service.label,
     type_probleme: typeLabel,
@@ -217,17 +217,17 @@ async function urgenceCollecterType(from, input, client) {
     `✅ Demande enregistrée, ${client.nom.split(" ")[0]}.\n\n📍 ${intervention.quartier}\n🏠 ${typeLabel}\n💰 Estimation : ${formatRange(service.priceMin, service.priceMax)}\n\n🔎 Recherche du technicien le plus proche...`
   );
 
-  const result = findNearestTechnicien(session.contexte.position);
+  const result = await findNearestTechnicien(session.contexte.position);
   if (!result) {
-    db.updateIntervention(intervention.id, { statut: "en_attente_technicien" });
-    db.setSession(from, { etape: "menu_principal", contexte: {} });
+    await db.updateIntervention(intervention.id, { statut: "en_attente_technicien" });
+    await db.setSession(from, { etape: "menu_principal", contexte: {} });
     return wa.sendText(from, "⏳ Toutes nos équipes sont actuellement mobilisées. Vous êtes en tête de la prochaine file de dispatch — nous revenons vers vous dans les tout prochains instants.");
   }
 
   const { technicien, etaMinutes } = result;
-  db.updateIntervention(intervention.id, { statut: "assignée", technicien_id: technicien.id });
-  db.setTechnicienStatut(technicien.id, "en_intervention");
-  db.setSession(from, { etape: "menu_principal", contexte: { intervention_id: intervention.id } });
+  await db.updateIntervention(intervention.id, { statut: "assignée", technicien_id: technicien.id });
+  await db.setTechnicienStatut(technicien.id, "en_intervention");
+  await db.setSession(from, { etape: "menu_principal", contexte: { intervention_id: intervention.id } });
 
   const heureArrivee = new Date(Date.now() + etaMinutes * 60000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   return wa.sendText(
@@ -239,24 +239,24 @@ async function urgenceCollecterType(from, input, client) {
 // Déclenché en interne (voir server.js /api/interventions/:id/statut) — pas par
 // un message du client — pour les étapes "en route", "arrivée" et "terminée".
 async function notifierChangementStatutIntervention(intervention, statut, extra = {}) {
-  const client = db.db.get("clients").find({ id: intervention.client_id }).value();
-  const technicien = intervention.technicien_id ? db.getTechnicien(intervention.technicien_id) : null;
+  const client = await db.getClientById(intervention.client_id);
+  const technicien = intervention.technicien_id ? await db.getTechnicien(intervention.technicien_id) : null;
   const to = client?.telephone;
   if (!to) return;
 
   if (statut === "en_route") {
-    db.updateIntervention(intervention.id, { statut: "en_route" });
+    await db.updateIntervention(intervention.id, { statut: "en_route" });
     return wa.sendText(to, `🚗 ${technicien?.nom || "Votre technicien"} est en route vers vous — arrivée estimée dans ${extra.etaMinutes || 15} min.`);
   }
   if (statut === "arrivee") {
-    db.updateIntervention(intervention.id, { statut: "en_cours" });
+    await db.updateIntervention(intervention.id, { statut: "en_cours" });
     return wa.sendText(to, `📍 ${technicien?.nom || "Votre technicien"} est arrivé chez vous.`);
   }
   if (statut === "terminee") {
     const montant = extra.montant || intervention.montant;
-    db.updateIntervention(intervention.id, { statut: "terminée", montant });
-    if (technicien) db.setTechnicienStatut(technicien.id, "disponible");
-    db.setSession(to, { etape: "urgence_paiement", contexte: { intervention_id: intervention.id } });
+    await db.updateIntervention(intervention.id, { statut: "terminée", montant });
+    if (technicien) await db.setTechnicienStatut(technicien.id, "disponible");
+    await db.setSession(to, { etape: "urgence_paiement", contexte: { intervention_id: intervention.id } });
     return wa.sendButtons(
       to,
       `✅ Intervention terminée par ${technicien?.nom || "notre équipe"}. Merci de votre confiance !\n\n💳 Montant à régler : ${formatFcfa(montant)}\n\nChoisissez votre moyen de paiement :`,
@@ -276,14 +276,14 @@ async function urgencePaiement(from, input, session) {
   if (!methode) {
     return wa.sendText(from, "Choisissez un moyen de paiement parmi les options proposées, ou tapez 4 pour un paiement en 2 fois.");
   }
-  const intervention = db.getInterventionById(session.contexte.intervention_id);
-  const client = db.findClientByPhone(from);
+  const intervention = await db.getInterventionById(session.contexte.intervention_id);
+  const client = await db.findClientByPhone(from);
 
   // TODO production : remplacer par un vrai appel à l'API CinetPay
   // (https://docs.cinetpay.com) qui initie la transaction MTN/Moov/carte et
   // renvoie un statut confirmé de manière asynchrone via son propre webhook.
   // Pour la Phase 1, le paiement est considéré confirmé immédiatement.
-  const paiement = db.createPaiement({
+  const paiement = await db.createPaiement({
     intervention_id: intervention.id,
     methode,
     montant: intervention.montant,
@@ -292,12 +292,12 @@ async function urgencePaiement(from, input, session) {
 
   const { filename } = await generateReceiptPdf({ intervention, client, paiement });
   const url = `${config.publicBaseUrl}/receipts/${filename}`;
-  db.updatePaiement(paiement.id, { recu_url: url });
-  db.updateIntervention(intervention.id, { statut: "payée" });
+  await db.updatePaiement(paiement.id, { recu_url: url });
+  await db.updateIntervention(intervention.id, { statut: "payée" });
 
   await wa.sendText(from, `Merci pour votre paiement ✅`);
   await wa.sendDocumentByUrl(from, url, filename, "Votre reçu SOS INONDATION");
-  db.setSession(from, { etape: "urgence_notation", contexte: session.contexte });
+  await db.setSession(from, { etape: "urgence_notation", contexte: session.contexte });
   return wa.sendText(from, "Comment évaluez-vous notre service ?\nRépondez de 1 (déçu) à 5 (excellent) ⭐");
 }
 
@@ -306,16 +306,16 @@ async function urgenceNotation(from, input, session) {
   if (!note || note < 1 || note > 5) {
     return wa.sendText(from, "Répondez avec un chiffre de 1 à 5 pour noter le service 🙂");
   }
-  const intervention = db.getInterventionById(session.contexte.intervention_id);
+  const intervention = await db.getInterventionById(session.contexte.intervention_id);
   if (intervention?.technicien_id) {
-    const t = db.getTechnicien(intervention.technicien_id);
+    const t = await db.getTechnicien(intervention.technicien_id);
     if (t) {
       const nouvelleNote = Math.round(((t.note_moyenne * 9 + note) / 10) * 10) / 10;
-      db.db.get("techniciens").find({ id: t.id }).assign({ note_moyenne: nouvelleNote }).write();
+      await db.updateTechnicienNote(t.id, nouvelleNote);
     }
   }
-  const client = db.findClientByPhone(from);
-  db.resetSession(from);
+  const client = await db.findClientByPhone(from);
+  await db.resetSession(from);
   await wa.sendText(from, `Merci ${client.nom.split(" ")[0]} 🙏`);
   return wa.sendText(
     from,
@@ -327,7 +327,7 @@ async function urgenceNotation(from, input, session) {
 // 5.4 — Branche 2 : Devis rapide
 // ============================================================================
 async function sendDevisMenu(from) {
-  db.setSession(from, { etape: "devis_choix_service", contexte: {} });
+  await db.setSession(from, { etape: "devis_choix_service", contexte: {} });
   return wa.sendList(
     from,
     "💰 Devis rapide — choisissez un service :",
@@ -342,10 +342,10 @@ async function sendDevisMenu(from) {
 
 async function devisChoixService(from, input) {
   const id = input.type === "choice" ? input.value : input.type === "text" ? input.value.trim() : "";
-  if (id === "retour" || normCmd(id) === "MENU") return sendMainMenu(from, db.findClientByPhone(from));
+  if (id === "retour" || normCmd(id) === "MENU") return sendMainMenu(from, await db.findClientByPhone(from));
   const service = SERVICES.find((s) => s.id === id);
   if (!service) return wa.sendText(from, "Choisissez un service dans la liste proposée, ou tapez MENU.");
-  db.setSession(from, { etape: "devis_confirmation", contexte: { service_id: service.id } });
+  await db.setSession(from, { etape: "devis_confirmation", contexte: { service_id: service.id } });
   return wa.sendButtons(
     from,
     `🧾 ${service.label}\nFourchette : ${formatRange(service.priceMin, service.priceMax)} · Délai : ${service.delai}\n\nRéserver cette intervention maintenant ?`,
@@ -359,17 +359,17 @@ async function devisChoixService(from, input) {
 async function devisConfirmation(from, input, session) {
   const choix = input.type === "choice" ? input.value : normCmd(input.type === "text" ? input.value : "");
   if (choix === "oui" || choix === "OUI") {
-    db.setSession(from, { etape: "urgence_position", contexte: { service_preselectionne: session.contexte.service_id } });
+    await db.setSession(from, { etape: "urgence_position", contexte: { service_preselectionne: session.contexte.service_id } });
     return startUrgence(from);
   }
-  return sendMainMenu(from, db.findClientByPhone(from));
+  return sendMainMenu(from, await db.findClientByPhone(from));
 }
 
 // ============================================================================
 // 5.5 — Branche 3 : Mon Pack Sécurité
 // ============================================================================
 async function sendAbonnementInfo(from, client) {
-  const sub = db.getActiveSubscription(client.id);
+  const sub = await db.getActiveSubscription(client.id);
   if (sub) {
     const dateFin = new Date(sub.date_fin).toLocaleDateString("fr-FR");
     return wa.sendText(
@@ -377,7 +377,7 @@ async function sendAbonnementInfo(from, client) {
       `🛡️ Votre Pack Sécurité est actif ✅\nValable jusqu'au ${dateFin}\nAvantage : -20% garanti + priorité absolue\n\nTapez 1 à tout moment pour une intervention prioritaire.`
     );
   }
-  db.setSession(from, { etape: "abonnement_confirmation", contexte: {} });
+  await db.setSession(from, { etape: "abonnement_confirmation", contexte: {} });
   return wa.sendButtons(
     from,
     `🛡️ PACK SÉCURITÉ SAISON DES PLUIES\n\n✅ Intervention prioritaire garantie\n✅ -20% sur toutes les interventions\n✅ Audit gratuit de vulnérabilité\n✅ Ligne dédiée 24h/24\n\n💰 ${formatRange(PACK_SECURITE.priceMin, PACK_SECURITE.priceMax)} / saison`,
@@ -391,8 +391,8 @@ async function sendAbonnementInfo(from, client) {
 async function abonnementConfirmation(from, input, client) {
   const choix = input.type === "choice" ? input.value : normCmd(input.type === "text" ? input.value : "");
   if (choix === "oui" || choix === "OUI") {
-    db.createSubscription(client.id);
-    db.resetSession(from);
+    await db.createSubscription(client.id);
+    await db.resetSession(from);
     return wa.sendText(from, "✅ Pack Sécurité activé ! Vous serez prioritaire dès la prochaine alerte pluie. Un conseiller vous contactera pour finaliser le règlement de l'abonnement.");
   }
   if (choix === "info" || choix === "INFO") {
@@ -408,7 +408,7 @@ async function abonnementConfirmation(from, input, client) {
 // 5.6 — Branche 4 : Suivi de mon intervention
 // ============================================================================
 async function sendSuivi(from, client) {
-  const intervention = db.getActiveInterventionForClient(client.id);
+  const intervention = await db.getActiveInterventionForClient(client.id);
   if (!intervention) {
     return wa.sendText(from, "Vous n'avez aucune intervention en cours actuellement.\nTapez 1 pour signaler une urgence.");
   }
@@ -417,7 +417,7 @@ async function sendSuivi(from, client) {
   const pct = Math.round(((idx + 1) / steps.length) * 100);
   const filled = Math.round(pct / 10);
   const bar = "▓".repeat(filled) + "░".repeat(10 - filled);
-  const technicien = intervention.technicien_id ? db.getTechnicien(intervention.technicien_id) : null;
+  const technicien = intervention.technicien_id ? await db.getTechnicien(intervention.technicien_id) : null;
 
   const lignes = [
     `📍 Suivi de votre intervention #${intervention.id.slice(0, 8).toUpperCase()}`,
@@ -437,8 +437,8 @@ async function sendSuivi(from, client) {
 // 5.7 — Branche 5 : Parler à un conseiller
 // ============================================================================
 async function handoffConseiller(from) {
-  const session = db.getSession(from);
-  db.setSession(from, { etape: session.etape, contexte: { ...session.contexte, handoff_jusqu_a: Date.now() + HANDOFF_DUREE_MS } });
+  const session = await db.getSession(from);
+  await db.setSession(from, { etape: session.etape, contexte: { ...session.contexte, handoff_jusqu_a: Date.now() + HANDOFF_DUREE_MS } });
   return wa.sendText(from, "👤 Je transmets votre demande à un conseiller humain.\nIl vous répondra sous peu (généralement moins de 10 minutes en journée).");
 }
 

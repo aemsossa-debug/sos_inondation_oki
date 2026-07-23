@@ -1,191 +1,244 @@
-// Couche de persistance. En Phase 1, un simple fichier JSON (via lowdb) suffit
-// largement et coûte 0 FCFA. Pour migrer vers PostgreSQL en Phase 3, seule cette
-// couche doit être réécrite — flows/ et whatsapp.js n'ont jamais besoin de changer.
-const low = require("lowdb");
-const FileSync = require("lowdb/adapters/FileSync");
-const path = require("path");
-const fs = require("fs");
-const crypto = require("crypto");
+// Couche de persistance — Supabase (PostgreSQL managé). Remplace l'ancienne
+// version JSON locale (lowdb) ; c'est le SEUL fichier que la migration a dû
+// réécrire — flows.js, scheduler.js et server.js n'utilisent que les fonctions
+// exportées ci-dessous, jamais de requête SQL directe.
+const { createClient } = require("@supabase/supabase-js");
 const config = require("./config");
 
-const dbPath = path.resolve(process.cwd(), config.dbPath);
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-
-const adapter = new FileSync(dbPath);
-const db = low(adapter);
-
-db.defaults({
-  clients: [],
-  interventions: [],
-  techniciens: [],
-  paiements: [],
-  abonnements: [],
-  signalements_zones: [],
-  sessions: [],
-}).write();
-
-// Semis de techniciens de démonstration si la base est vide — à remplacer
-// par votre équipe réelle depuis le dashboard opérateur.
-if (db.get("techniciens").size().value() === 0) {
-  db.get("techniciens")
-    .push(
-      {
-        id: uid(),
-        nom: "Cyriaque HOUNSA",
-        telephone: "22997000001",
-        position_gps_live: { lat: 6.3703, lng: 2.3912 }, // Akpakpa
-        statut_dispo: "disponible",
-        note_moyenne: 4.8,
-        plaque: "AB-1234-RB",
-      },
-      {
-        id: uid(),
-        nom: "Fabrice AGOSSOU",
-        telephone: "22997000002",
-        position_gps_live: { lat: 6.3833, lng: 2.4333 }, // Cadjehoun
-        statut_dispo: "disponible",
-        note_moyenne: 4.6,
-        plaque: "AB-5678-RB",
-      },
-      {
-        id: uid(),
-        nom: "Judicaël TOSSOU",
-        telephone: "22997000003",
-        position_gps_live: { lat: 6.4489, lng: 2.3559 }, // Abomey-Calavi
-        statut_dispo: "disponible",
-        note_moyenne: 4.9,
-        plaque: "AB-9012-RB",
-      }
-    )
-    .write();
+if (!config.supabaseUrl || !config.supabaseServiceKey) {
+  console.warn("[db] SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant — voir .env.example");
 }
 
-function uid() {
-  return crypto.randomUUID();
+// Des valeurs de repli évitent un crash au démarrage (createClient lève une
+// exception synchrone si l'URL est vide) tant que les vraies variables
+// d'environnement ne sont pas encore renseignées ; toute requête réelle
+// échouera proprement (erreur réseau/auth) plutôt que de faire planter tout
+// le process au chargement du module.
+const supabase = createClient(
+  config.supabaseUrl || "https://placeholder.supabase.co",
+  config.supabaseServiceKey || "placeholder-key-not-set",
+  { auth: { persistSession: false } }
+);
+
+function orThrow(error, contexte) {
+  if (error) {
+    console.error(`[db] erreur ${contexte}:`, error.message);
+    throw error;
+  }
 }
 
 // ---------- Clients ----------
-function findClientByPhone(telephone) {
-  return db.get("clients").find({ telephone }).value();
+async function findClientByPhone(telephone) {
+  const { data, error } = await supabase.from("clients").select("*").eq("telephone", telephone).maybeSingle();
+  orThrow(error, "findClientByPhone");
+  return data;
 }
-function upsertClient(telephone, patch) {
-  const existing = findClientByPhone(telephone);
+async function getClientById(id) {
+  const { data, error } = await supabase.from("clients").select("*").eq("id", id).maybeSingle();
+  orThrow(error, "getClientById");
+  return data;
+}
+async function upsertClient(telephone, patch) {
+  const existing = await findClientByPhone(telephone);
   if (existing) {
-    db.get("clients").find({ telephone }).assign(patch).write();
-    return findClientByPhone(telephone);
+    const { data, error } = await supabase.from("clients").update(patch).eq("telephone", telephone).select().single();
+    orThrow(error, "upsertClient(update)");
+    return data;
   }
-  const client = { id: uid(), telephone, abonnement_actif: false, date_creation: new Date().toISOString(), ...patch };
-  db.get("clients").push(client).write();
-  return client;
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({ telephone, ...patch })
+    .select()
+    .single();
+  orThrow(error, "upsertClient(insert)");
+  return data;
 }
 
 // ---------- Interventions ----------
-function createIntervention(data) {
-  const intervention = {
-    id: uid(),
-    statut: "reçue",
-    date_creation: new Date().toISOString(),
-    photos: [],
-    ...data,
-  };
-  db.get("interventions").push(intervention).write();
-  return intervention;
+async function createIntervention(payload) {
+  const { data, error } = await supabase
+    .from("interventions")
+    .insert({
+      client_id: payload.client_id,
+      type_service: payload.type_service,
+      type_probleme: payload.type_probleme,
+      position_gps_lat: payload.position_gps?.lat,
+      position_gps_lng: payload.position_gps?.lng,
+      quartier: payload.quartier,
+      photos: payload.photos || [],
+      montant: payload.montant,
+      statut: payload.statut || "reçue",
+    })
+    .select()
+    .single();
+  orThrow(error, "createIntervention");
+  return mapIntervention(data);
 }
-function updateIntervention(id, patch) {
-  db.get("interventions").find({ id }).assign(patch).write();
-  return db.get("interventions").find({ id }).value();
+async function updateIntervention(id, patch) {
+  const dbPatch = { ...patch };
+  if (["terminée", "payée", "annulée"].includes(patch.statut)) dbPatch.date_cloture = new Date().toISOString();
+  const { data, error } = await supabase.from("interventions").update(dbPatch).eq("id", id).select().single();
+  orThrow(error, "updateIntervention");
+  return mapIntervention(data);
 }
-function getActiveInterventionForClient(clientId) {
-  return db
-    .get("interventions")
-    .filter((i) => i.client_id === clientId && !["terminée", "payée", "annulée"].includes(i.statut))
-    .sortBy("date_creation")
-    .last()
-    .value();
+async function getActiveInterventionForClient(clientId) {
+  const TERMINAUX = new Set(["terminée", "payée", "annulée"]);
+  const { data, error } = await supabase
+    .from("interventions")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("date_creation", { ascending: false })
+    .limit(5);
+  orThrow(error, "getActiveInterventionForClient");
+  const active = (data || []).find((row) => !TERMINAUX.has(row.statut));
+  return mapIntervention(active);
 }
-function getInterventionById(id) {
-  return db.get("interventions").find({ id }).value();
+async function getInterventionById(id) {
+  const { data, error } = await supabase.from("interventions").select("*").eq("id", id).maybeSingle();
+  orThrow(error, "getInterventionById");
+  return mapIntervention(data);
+}
+function mapIntervention(row) {
+  if (!row) return row;
+  return { ...row, position_gps: row.position_gps_lat != null ? { lat: row.position_gps_lat, lng: row.position_gps_lng } : null };
 }
 
 // ---------- Techniciens ----------
-function listAvailableTechniciens() {
-  return db.get("techniciens").filter({ statut_dispo: "disponible" }).value();
+async function listAvailableTechniciens() {
+  const { data, error } = await supabase.from("techniciens").select("*").eq("statut_dispo", "disponible");
+  orThrow(error, "listAvailableTechniciens");
+  return (data || []).map(mapTechnicien);
 }
-function getTechnicien(id) {
-  return db.get("techniciens").find({ id }).value();
+async function getTechnicien(id) {
+  const { data, error } = await supabase.from("techniciens").select("*").eq("id", id).maybeSingle();
+  orThrow(error, "getTechnicien");
+  return mapTechnicien(data);
 }
-function setTechnicienStatut(id, statut_dispo) {
-  db.get("techniciens").find({ id }).assign({ statut_dispo }).write();
+async function setTechnicienStatut(id, statut_dispo) {
+  const { error } = await supabase.from("techniciens").update({ statut_dispo }).eq("id", id);
+  orThrow(error, "setTechnicienStatut");
+}
+async function updateTechnicienNote(id, nouvelleNote) {
+  const { error } = await supabase.from("techniciens").update({ note_moyenne: nouvelleNote }).eq("id", id);
+  orThrow(error, "updateTechnicienNote");
+}
+function mapTechnicien(row) {
+  if (!row) return row;
+  return { ...row, position_gps_live: { lat: row.position_gps_lat, lng: row.position_gps_lng } };
 }
 
 // ---------- Paiements ----------
-function createPaiement(data) {
-  const paiement = { id: uid(), statut: "en_attente", date_creation: new Date().toISOString(), ...data };
-  db.get("paiements").push(paiement).write();
-  return paiement;
+async function createPaiement(payload) {
+  const { data, error } = await supabase.from("paiements").insert(payload).select().single();
+  orThrow(error, "createPaiement");
+  return data;
 }
-function updatePaiement(id, patch) {
-  db.get("paiements").find({ id }).assign(patch).write();
-  return db.get("paiements").find({ id }).value();
+async function updatePaiement(id, patch) {
+  const { data, error } = await supabase.from("paiements").update(patch).eq("id", id).select().single();
+  orThrow(error, "updatePaiement");
+  return data;
 }
 
 // ---------- Abonnements ----------
-function getActiveSubscription(clientId) {
-  const now = new Date().toISOString();
-  return db
-    .get("abonnements")
-    .find((a) => a.client_id === clientId && a.date_fin > now)
-    .value();
+async function getActiveSubscription(clientId) {
+  const { data, error } = await supabase
+    .from("abonnements")
+    .select("*")
+    .eq("client_id", clientId)
+    .gt("date_fin", new Date().toISOString())
+    .maybeSingle();
+  orThrow(error, "getActiveSubscription");
+  return data;
 }
-function createSubscription(clientId, moisValidite = 5) {
-  const now = new Date();
-  const fin = new Date(now);
-  fin.setMonth(fin.getMonth() + moisValidite);
-  const sub = {
-    id: uid(),
-    client_id: clientId,
-    type_pack: "Pack Sécurité Saison des Pluies",
-    date_debut: now.toISOString(),
-    date_fin: fin.toISOString(),
-  };
-  db.get("abonnements").push(sub).write();
-  db.get("clients").find({ id: clientId }).assign({ abonnement_actif: true }).write();
-  return sub;
+async function createSubscription(clientId, moisValidite = 5) {
+  const dateFin = new Date();
+  dateFin.setMonth(dateFin.getMonth() + moisValidite);
+  const { data, error } = await supabase
+    .from("abonnements")
+    .insert({ client_id: clientId, date_fin: dateFin.toISOString() })
+    .select()
+    .single();
+  orThrow(error, "createSubscription");
+  await supabase.from("clients").update({ abonnement_actif: true }).eq("id", clientId);
+  return data;
 }
 
 // ---------- Signalements zones (carte intelligente) ----------
-function addSignalementZone(data) {
-  const s = { id: uid(), date: new Date().toISOString(), ...data };
-  db.get("signalements_zones").push(s).write();
-  return s;
+async function addSignalementZone(payload) {
+  const { data, error } = await supabase
+    .from("signalements_zones")
+    .insert({
+      position_gps_lat: payload.position_gps?.lat,
+      position_gps_lng: payload.position_gps?.lng,
+      niveau_eau_estime: payload.niveau_eau_estime,
+      source: payload.source,
+      photo_url: payload.photo_url,
+    })
+    .select()
+    .single();
+  orThrow(error, "addSignalementZone");
+  return data;
 }
 
-// ---------- Sessions de conversation (machine à états par numéro) ----------
-function getSession(telephone) {
-  let s = db.get("sessions").find({ telephone }).value();
-  if (!s) {
-    s = { telephone, etape: "menu_principal", contexte: {} };
-    db.get("sessions").push(s).write();
-  }
-  return s;
+// ---------- Sessions (machine à états par numéro) ----------
+async function getSession(telephone) {
+  const { data, error } = await supabase.from("sessions").select("*").eq("telephone", telephone).maybeSingle();
+  orThrow(error, "getSession");
+  if (data) return data;
+  const fresh = { telephone, etape: "menu_principal", contexte: {} };
+  const { data: created, error: insErr } = await supabase.from("sessions").insert(fresh).select().single();
+  orThrow(insErr, "getSession(create)");
+  return created;
 }
-function setSession(telephone, patch) {
-  const existing = db.get("sessions").find({ telephone }).value();
-  if (existing) {
-    db.get("sessions").find({ telephone }).assign(patch).write();
-  } else {
-    db.get("sessions").push({ telephone, etape: "menu_principal", contexte: {}, ...patch }).write();
-  }
-  return db.get("sessions").find({ telephone }).value();
+async function setSession(telephone, patch) {
+  const dbPatch = { ...patch, updated_at: new Date().toISOString() };
+  const { data, error } = await supabase
+    .from("sessions")
+    .upsert({ telephone, ...dbPatch }, { onConflict: "telephone" })
+    .select()
+    .single();
+  orThrow(error, "setSession");
+  return data;
 }
-function resetSession(telephone) {
+async function resetSession(telephone) {
   return setSession(telephone, { etape: "menu_principal", contexte: {} });
 }
 
+// ---------- CRM / scheduler (section 5.8) ----------
+async function listClientsForMarketing() {
+  const { data, error } = await supabase.from("clients").select("*").eq("opt_out_marketing", false);
+  orThrow(error, "listClientsForMarketing");
+  return data || [];
+}
+async function listInterventionsAPaieePourParrainage() {
+  const { data, error } = await supabase
+    .from("interventions")
+    .select("*")
+    .eq("statut", "payée")
+    .eq("parrainage_envoye", false);
+  orThrow(error, "listInterventionsAPaieePourParrainage");
+  return (data || []).map(mapIntervention);
+}
+async function marquerParrainageEnvoye(id) {
+  await supabase.from("interventions").update({ parrainage_envoye: true }).eq("id", id);
+}
+async function listClientsInactifsDepuis(dateLimiteIso) {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*")
+    .eq("opt_out_marketing", false)
+    .eq("reactivation_envoyee", false)
+    .lt("date_creation", dateLimiteIso);
+  orThrow(error, "listClientsInactifsDepuis");
+  return data || [];
+}
+async function marquerReactivationEnvoyee(clientId) {
+  await supabase.from("clients").update({ reactivation_envoyee: true }).eq("id", clientId);
+}
+
 module.exports = {
-  db,
-  uid,
   findClientByPhone,
+  getClientById,
   upsertClient,
   createIntervention,
   updateIntervention,
@@ -194,6 +247,7 @@ module.exports = {
   listAvailableTechniciens,
   getTechnicien,
   setTechnicienStatut,
+  updateTechnicienNote,
   createPaiement,
   updatePaiement,
   getActiveSubscription,
@@ -202,4 +256,9 @@ module.exports = {
   getSession,
   setSession,
   resetSession,
+  listClientsForMarketing,
+  listInterventionsAPaieePourParrainage,
+  marquerParrainageEnvoye,
+  listClientsInactifsDepuis,
+  marquerReactivationEnvoyee,
 };

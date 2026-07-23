@@ -11,19 +11,14 @@
 // wa.sendText() ci-dessous par des appels à un modèle approuvé (même contenu,
 // juste un format d'envoi différent une fois le modèle validé par Meta).
 const cron = require("node-cron");
-const { db } = require("./db");
+const db = require("./db");
 const wa = require("./whatsapp");
-
-function estOptOut(client) {
-  return client.opt_out_marketing === true;
-}
 
 // 1er mars et 1er août à 9h — rappel Pack Sécurité avant chaque saison des pluies
 function planifierRappelSaison() {
   cron.schedule("0 9 1 3,8 *", async () => {
-    const clients = db.get("clients").value();
+    const clients = await db.listClientsForMarketing();
     for (const client of clients) {
-      if (estOptOut(client)) continue;
       const prenom = client.nom?.split(" ")[0] || "";
       await wa
         .sendText(
@@ -40,14 +35,13 @@ function planifierRappelSaison() {
 // pour le volume attendu et beaucoup plus simple à maintenir).
 function planifierRelanceParrainage() {
   cron.schedule("0 * * * *", async () => {
-    const interventions = db.get("interventions").filter({ statut: "payée" }).value();
+    const interventions = await db.listInterventionsAPaieePourParrainage();
     const now = Date.now();
     for (const inter of interventions) {
-      if (inter.parrainage_envoye) continue;
       const cloture = new Date(inter.date_cloture || inter.date_creation).getTime();
       if (now - cloture < 24 * 3600 * 1000) continue;
-      const client = db.get("clients").find({ id: inter.client_id }).value();
-      if (!client || estOptOut(client)) continue;
+      const client = await db.getClientById(inter.client_id);
+      if (!client || client.opt_out_marketing) continue;
       const prenom = client.nom?.split(" ")[0] || "";
       await wa
         .sendText(
@@ -55,7 +49,7 @@ function planifierRelanceParrainage() {
           `Merci pour votre confiance, ${prenom} !\nRecommandez-nous à un voisin et obtenez 5 000 FCFA de réduction sur votre prochaine intervention 🎁\nRépondez PARRAINAGE pour votre code.`
         )
         .catch((e) => console.error("[scheduler] relance parrainage échouée", e.message));
-      db.get("interventions").find({ id: inter.id }).assign({ parrainage_envoye: true }).write();
+      await db.marquerParrainageEnvoye(inter.id);
     }
   });
 }
@@ -63,13 +57,10 @@ function planifierRelanceParrainage() {
 // Une fois par jour à 10h : réactivation des clients inactifs depuis 8 mois
 function planifierReactivation() {
   cron.schedule("0 10 * * *", async () => {
-    const clients = db.get("clients").value();
-    const now = Date.now();
     const HUIT_MOIS = 8 * 30 * 24 * 3600 * 1000;
+    const dateLimite = new Date(Date.now() - HUIT_MOIS).toISOString();
+    const clients = await db.listClientsInactifsDepuis(dateLimite);
     for (const client of clients) {
-      if (estOptOut(client) || client.reactivation_envoyee) continue;
-      const dernierContact = new Date(client.date_creation).getTime();
-      if (now - dernierContact < HUIT_MOIS) continue;
       const prenom = client.nom?.split(" ")[0] || "";
       await wa
         .sendText(
@@ -77,7 +68,7 @@ function planifierReactivation() {
           `Bonjour ${prenom}, ça fait un moment ! 👋\nOn reste disponibles si une inondation touche votre quartier. Besoin d'un devis ou d'infos sur le Pack Sécurité ?`
         )
         .catch((e) => console.error("[scheduler] réactivation échouée", e.message));
-      db.get("clients").find({ id: client.id }).assign({ reactivation_envoyee: true }).write();
+      await db.marquerReactivationEnvoyee(client.id);
     }
   });
 }
