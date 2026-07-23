@@ -1,6 +1,5 @@
 node_modules/
 .env
-data/db.json
 data/receipts/
 npm-debug.log*
 .DS_Store

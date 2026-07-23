@@ -86,7 +86,7 @@ app.post("/api/interventions/:id/statut", express.json(), async (req, res) => {
   if (!["en_route", "arrivee", "terminee"].includes(statut)) {
     return res.status(400).json({ error: "statut invalide (attendu: en_route | arrivee | terminee)" });
   }
-  const intervention = getInterventionById(req.params.id);
+  const intervention = await getInterventionById(req.params.id);
   if (!intervention) return res.status(404).json({ error: "intervention introuvable" });
 
   try {

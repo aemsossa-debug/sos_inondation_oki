@@ -38,6 +38,15 @@ cp .env.example .env
    - L'**identifiant du numéro de téléphone** (`WHATSAPP_PHONE_NUMBER_ID`)
 4. Pour utiliser votre propre numéro (recommandé pour la mise en production) : **WhatsApp → Configuration de l'API → Ajouter un numéro de téléphone**, puis suivez la vérification par SMS/appel.
 
+### SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY
+
+La base de données est déjà créée et prête (projet Supabase `sos-inondation`,
+région eu-west-1, les 6 tables du modèle de données + la table de sessions
+sont en place, RLS activé). Il ne reste que deux valeurs à copier :
+
+1. `SUPABASE_URL` est déjà pré-remplie dans `.env.example`.
+2. Allez sur https://supabase.com/dashboard/project/hreqnarxxhfqjqhcxanc/settings/api → copiez la clé **service_role** (secrète — jamais la clé "anon"/"publishable", qui n'a pas les droits d'écriture nécessaires puisque RLS est activé sans policy publique) dans `SUPABASE_SERVICE_ROLE_KEY`.
+
 ### WHATSAPP_APP_SECRET
 
 Dans **Paramètres de l'application → Général**, champ **Clé secrète**.
@@ -132,12 +141,29 @@ client (voir section 5.3 du dossier de conception). Les prototypes fournis
 utilisent aujourd'hui des données de démonstration ; les brancher sur cette
 API est la prochaine étape naturelle pour un système entièrement connecté.
 
-## Passer de la base JSON locale à PostgreSQL (Phase 3)
+## Base de données
 
-Toute la logique métier passe exclusivement par `src/db.js` — c'est le seul
-fichier à réécrire pour migrer vers PostgreSQL/Supabase. Aucun autre fichier
-(`flows.js`, `whatsapp.js`, `server.js`...) n'a besoin de changer, à condition
-de conserver les mêmes noms de fonctions exportées.
+Le projet Supabase `sos-inondation` (PostgreSQL 17, région eu-west-1, palier
+gratuit) est déjà créé et structuré : 6 tables métier (`clients`,
+`interventions`, `techniciens`, `paiements`, `abonnements`,
+`signalements_zones`) + une table `sessions` pour la machine à états du
+chatbot, avec Row Level Security activé sur chacune (seule la clé
+`service_role`, utilisée par ce serveur, peut lire/écrire — aucun accès
+public). 3 techniciens de démonstration sont déjà en base pour que le
+dispatch automatique fonctionne dès le premier message.
+
+Toute la logique métier passe exclusivement par `src/db.js` : c'est le seul
+fichier à modifier pour faire évoluer le schéma ou changer de fournisseur,
+tant que les noms de fonctions exportées restent identiques.
+
+**Note sur la vérification :** le bac à sable dans lequel ce projet a été
+préparé ne peut pas ouvrir de connexion réseau directe vers `supabase.co`.
+Chaque requête utilisée par `db.js` (création, mise à jour, filtrage,
+cascades) a donc été rejouée et vérifiée directement sur votre base réelle
+via l'outil d'administration Supabase plutôt que par un test de bout en bout
+depuis ce serveur — le schéma, les contraintes et les données de départ sont
+donc confirmés fonctionnels ; seul le tout premier appel réel depuis le
+serveur déployé restera à observer une fois en ligne (§8 ci-dessus).
 
 ## Structure du projet
 
@@ -146,7 +172,7 @@ src/
   server.js       API + webhook WhatsApp (point d'entrée : npm start)
   flows.js        Machine à états — script complet du chatbot (section 5)
   whatsapp.js     Client WhatsApp Cloud API (envoi/réception)
-  db.js           Base de données (JSON local — voir migration ci-dessus)
+  db.js           Base de données (Supabase/PostgreSQL — voir section dédiée ci-dessus)
   dispatch.js     Sélection du technicien le plus proche
   pricing.js      Grille tarifaire
   receipts.js     Génération des reçus PDF

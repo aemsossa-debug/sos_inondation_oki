@@ -15,10 +15,10 @@ function haversineKm(a, b) {
 // Retourne le technicien disponible le plus proche de la position du sinistre,
 // ou null s'il n'y en a aucun (dans ce cas, la conversation bascule sur un
 // message "toutes les équipes sont mobilisées" plutôt que de planter).
-function findNearestTechnicien(positionGps) {
-  const disponibles = listAvailableTechniciens();
+async function findNearestTechnicien(positionGps) {
+  const disponibles = await listAvailableTechniciens();
   if (disponibles.length === 0) return null;
-  if (!positionGps) return disponibles[0];
+  if (!positionGps) return { technicien: disponibles[0], distanceKm: null, etaMinutes: 20 };
 
   let best = null;
   let bestDist = Infinity;
